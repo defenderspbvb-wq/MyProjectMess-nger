@@ -1,0 +1,5 @@
+<Solution>
+  <Project Path="TcpChat.Client1/TcpChat.Client1.csproj" />
+  <Project Path="TcpChat.Client2/TcpChat.Client2.csproj" />
+  <Project Path="TcpServer/TcpServer.csproj" />
+</Solution>

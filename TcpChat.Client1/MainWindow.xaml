@@ -1,0 +1,85 @@
+﻿<Window x:Class="TcpChat.Client.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:local="clr-namespace:TcpChat.Client"
+        mc:Ignorable="d"
+        Title="MainWindow" Height="450" Width="800">
+    <Grid Margin="10">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+        </Grid.RowDefinitions>
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="220"/>
+            <ColumnDefinition Width="*"/>
+        </Grid.ColumnDefinitions>
+
+        <!-- ВЕРХ: имя и подключение -->
+        <StackPanel Grid.Row="0" Grid.Column="0" Grid.ColumnSpan="2" Orientation="Horizontal" Margin="0,0,0,10">
+            <TextBlock Text="Ваше имя: " VerticalAlignment="Center" FontWeight="Bold"/>
+            <TextBox Text="{Binding UserName, UpdateSourceTrigger=PropertyChanged}" Width="150" Margin="5,0"
+                     IsEnabled="{Binding IsNotConnected}" VerticalContentAlignment="Center"/>
+            <Button Content="Подключиться" Command="{Binding ConnectCommand}" Padding="15,3"
+                    IsEnabled="{Binding IsNotConnected}" Margin="5,0"/>
+            <TextBlock Text="{Binding StatusText}" Margin="15,0" VerticalAlignment="Center" Foreground="DimGray" FontStyle="Italic"/>
+        </StackPanel>
+
+        <!-- ЛЕВАЯ: список пользователей -->
+        <GroupBox Header="Контакты (Все из БД)" Grid.Row="1" Grid.Column="0" Margin="0,0,5,0" FontWeight="Bold">
+            <ListBox ItemsSource="{Binding Users}" SelectedItem="{Binding SelectedUser}" Margin="2" FontWeight="Normal">
+                <ListBox.ItemTemplate>
+                    <DataTemplate>
+                        <Border BorderBrush="#EAEAEA" BorderThickness="0,0,0,1" Padding="5">
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Text="👤 " Foreground="DodgerBlue"/>
+                                <TextBlock Text="{Binding Name}" FontSize="14" FontWeight="SemiBold"/>
+                            </StackPanel>
+                        </Border>
+                    </DataTemplate>
+                </ListBox.ItemTemplate>
+            </ListBox>
+        </GroupBox>
+
+        <!-- ПРАВАЯ: окно чата -->
+        <Grid Grid.Row="1" Grid.Column="1" Margin="5,0,0,0">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="*"/>
+                <RowDefinition Height="Auto"/>
+            </Grid.RowDefinitions>
+
+            <!-- Список сообщений (Вариант со строками) -->
+            <ListBox x:Name="MessagesListBox" ItemsSource="{Binding ChatMessages}" Grid.Row="0" Margin="0,0,0,5"
+         Background="#FDFDFD" BorderBrush="#DCDCDC" ScrollViewer.VerticalScrollBarVisibility="Auto">
+                <ListBox.ItemTemplate>
+                    <DataTemplate>
+                        <Border Padding="6" Margin="2" Background="#FFFFFF" CornerRadius="4" BorderBrush="#EEE" BorderThickness="1">
+                            <!-- Просто выводим саму строку -->
+                            <TextBlock Text="{Binding}" TextWrapping="Wrap" FontSize="13" Foreground="#333333"/>
+                        </Border>
+                    </DataTemplate>
+                </ListBox.ItemTemplate>
+            </ListBox>
+
+
+            <!-- Нижняя панель: ввод и отправка -->
+            <Grid Grid.Row="1">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="80"/>
+                </Grid.ColumnDefinitions>
+
+                <!-- KeyBinding внутри TextBox: Enter отправляет -->
+                <TextBox Text="{Binding MessageText, UpdateSourceTrigger=PropertyChanged}" Grid.Column="0" Margin="0,0,5,0"
+                         Height="30" VerticalContentAlignment="Center" FontSize="13" AcceptsReturn="False">
+                    <TextBox.InputBindings>
+                        <KeyBinding Key="Enter" Command="{Binding SendCommand}" />
+                    </TextBox.InputBindings>
+                </TextBox>
+
+                <Button Content="Послать" Command="{Binding SendCommand}" Grid.Column="1" Height="30" FontWeight="Bold"/>
+            </Grid>
+        </Grid>
+    </Grid>
+</Window>
