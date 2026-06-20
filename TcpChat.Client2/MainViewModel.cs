@@ -1,4 +1,5 @@
-﻿using System.Collections.ObjectModel;
+﻿using System.Collections.Concurrent;
+using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Runtime.CompilerServices;
 using System.Windows;
@@ -16,11 +17,12 @@ namespace TcpChat.Client
         private string _statusText = "Отключен";
         private bool _isNotConnected = true;
 
-        // Коллекции, которые WPF будет автоматически отображать на экране
+        // Хранилище истории сообщений: Key = ID Пользователя (0 для общего чата), Value = Список сообщений
+        private readonly Dictionary<int, List<string>> _chatHistories = new();
+
         public ObservableCollection<User> Users { get; set; } = new();
         public ObservableCollection<string> ChatMessages { get; set; } = new();
 
-        // Специальный объект для выбора "Все пользователи"
         private readonly User _allUsersItem = new User { Id = 0, Name = "--- ОБЩИЙ ЧАТ ---" };
 
         public string UserName
@@ -48,9 +50,9 @@ namespace TcpChat.Client
             {
                 _selectedUser = value;
                 OnPropertyChanged();
-                // При смене пользователя очищаем экран под историю конкретного диалога
-                ChatMessages.Clear();
-                ChatMessages.Add($"[СИСТЕМА] Вы переключились на чат: {value?.Name}");
+
+                // Переключаем историю сообщений на экране
+                LoadChatHistory();
             }
         }
 
@@ -60,31 +62,20 @@ namespace TcpChat.Client
             set { _messageText = value; OnPropertyChanged(); }
         }
 
-        // Команды для кнопок
         public ICommand ConnectCommand { get; }
         public ICommand SendCommand { get; }
 
         public MainViewModel()
         {
-            // Изменили на синхронный вызов методов, запускающих фоновые Task, чтобы XAML-компилятор не ругался
             ConnectCommand = new RelayCommand(_ => Connect());
             SendCommand = new RelayCommand(_ => SendMessage(), _ => !string.IsNullOrWhiteSpace(MessageText));
 
-            // Сразу добавляем Общий чат в список контактов
             Users.Add(_allUsersItem);
             SelectedUser = _allUsersItem;
         }
 
-        // Синхронные обертки-запускаторы для асинхронных команд
-        private void Connect()
-        {
-            _ = ConnectAsync();
-        }
-
-        private void SendMessage()
-        {
-            _ = SendMessageAsync();
-        }
+        private void Connect() => _ = ConnectAsync();
+        private void SendMessage() => _ = SendMessageAsync();
 
         private async Task ConnectAsync()
         {
@@ -93,12 +84,14 @@ namespace TcpChat.Client
             StatusText = "Подключение...";
             _client = new TcpNetworkClient("127.0.0.1", 8888, UserName);
 
-            // Подписываемся на события сетевого клиента
             _client.OnConnectionStatusChanged += status =>
                 ExecuteOnUI(() => StatusText = status);
 
             _client.OnUsersListReceived += usersList => ExecuteOnUI(() =>
             {
+                // Запоминаем, какой ID был выбран (например, 0)
+                int? previouslySelectedId = SelectedUser?.Id;
+
                 Users.Clear();
                 Users.Add(_allUsersItem);
                 foreach (var user in usersList.Where(u => u.Name != UserName))
@@ -106,28 +99,51 @@ namespace TcpChat.Client
                     Users.Add(user);
                 }
                 IsNotConnected = false;
-            });
 
-            _client.OnBroadcastMessageReceived += (sender, text) => ExecuteOnUI(() =>
-            {
-                // Если сейчас выбран Общий чат, выводим сообщение на экран
-                if (SelectedUser?.Id == 0)
+                // СРАЗУ ЖЕ восстанавливаем выбор, чтобы SelectedUser не оставался null!
+                if (previouslySelectedId.HasValue)
                 {
-                    ChatMessages.Add($"[{sender}]: {text}");
+                    SelectedUser = Users.FirstOrDefault(u => u.Id == previouslySelectedId.Value) ?? _allUsersItem;
                 }
             });
 
+
+            // Обработка общего чата
+            _client.OnBroadcastMessageReceived += (sender, text) => ExecuteOnUI(() =>
+            {
+                string formattedMessage = $"[{sender}]: {text}";
+                SaveMessageToHistory(0, formattedMessage); // Сохраняем в историю общего чата
+
+                // Если открыт общий чат — просто выводим на экран
+                if (SelectedUser?.Id == 0)
+                {
+                    ChatMessages.Add(formattedMessage);
+                }
+                // Если открыт приватный чат, но это важное системное уведомление от СЕРВЕРА
+                else if (sender == "СЕРВЕР")
+                {
+                    // Вариант А: Показать MessageBox (будет всплывать окно)
+                    MessageBox.Show(text, "Системное уведомление сервера", MessageBoxButton.OK, MessageBoxImage.Information);
+
+                    // Вариант Б (альтернативный): Дублировать системное сообщение прямо в текущий приватный чат, чтобы не отвлекать окнами
+                    // ChatMessages.Add($"[СИСТЕМА]: {text}");
+                }
+            });
+
+
+            // Обработка приватного чата (E2EE)
             _client.OnPrivateMessageReceived += (senderId, senderName, text) => ExecuteOnUI(() =>
             {
-                // Если у нас открыт чат именно с этим отправителем
+                string formattedMessage = $"[{senderName}]: {text}";
+                SaveMessageToHistory(senderId, formattedMessage);
+
                 if (SelectedUser?.Id == senderId)
                 {
-                    ChatMessages.Add($"[{senderName}]: {text}");
+                    ChatMessages.Add(formattedMessage);
                 }
                 else
                 {
-                    // Если открыт другой чат (или общий), уведомляем пользователя
-                    MessageBox.Show($"Новое личное сообщение от {senderName}!\n[{senderName}]: {text}", "Уведомление");
+                    MessageBox.Show($"Новое личное сообщение от {senderName}!", "Уведомление");
                 }
             });
 
@@ -138,25 +154,51 @@ namespace TcpChat.Client
         {
             if (_client == null || SelectedUser == null) return;
 
+            string formattedMessage;
             if (SelectedUser.Id == 0)
             {
-                // Отправка в общий чат (без шифрования, как и договаривались)
                 await _client.SendToAllAsync(MessageText);
-                ChatMessages.Add($"[Вы в Общий]: {MessageText}");
+                formattedMessage = $"[Вы в Общий]: {MessageText}";
+                SaveMessageToHistory(0, formattedMessage);
+                ChatMessages.Add(formattedMessage);
             }
             else
             {
-                // ОТПРАВКА С E2EE ШИФРОВАНИЕМ:
-                // Передаем объект SelectedUser целиком, чтобы клиент мог забрать из него PublicKeyBase64
                 await _client.SendPrivateAsync(SelectedUser, MessageText);
-                ChatMessages.Add($"[Вы для {SelectedUser.Name}]: {MessageText}");
+                formattedMessage = $"[Вы для {SelectedUser.Name}]: {MessageText}";
+                SaveMessageToHistory(SelectedUser.Id, formattedMessage);
+                ChatMessages.Add(formattedMessage);
             }
 
             MessageText = string.Empty;
         }
 
+        // Вспомогательные методы для работы с историей в памяти клиента
+        private void SaveMessageToHistory(int chatId, string message)
+        {
+            if (!_chatHistories.ContainsKey(chatId))
+            {
+                _chatHistories[chatId] = new List<string>();
+            }
+            _chatHistories[chatId].Add(message);
+        }
 
-        // Помощник для безопасного обновления UI из фонового потока сети
+        private void LoadChatHistory()
+        {
+            ChatMessages.Clear();
+            if (SelectedUser == null) return;
+
+            ChatMessages.Add($"[СИСТЕМА] Вы переключились на чат: {SelectedUser.Name}");
+
+            if (_chatHistories.TryGetValue(SelectedUser.Id, out var history))
+            {
+                foreach (var msg in history)
+                {
+                    ChatMessages.Add(msg);
+                }
+            }
+        }
+
         private void ExecuteOnUI(Action action)
         {
             Application.Current.Dispatcher.Invoke(action);
@@ -165,17 +207,5 @@ namespace TcpChat.Client
         public event PropertyChangedEventHandler? PropertyChanged;
         protected void OnPropertyChanged([CallerMemberName] string? name = null) =>
             PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
-    }
-
-    // Простая реализация ICommand для MVVM кнопок
-    public class RelayCommand : ICommand
-    {
-        private readonly Action<object?> _execute;
-        private readonly Predicate<object?>? _canExecute;
-        public RelayCommand(Action<object?> execute, Predicate<object?>? canExecute = null) =>
-            (_execute, _canExecute) = (execute, canExecute);
-        public bool CanExecute(object? parameter) => _canExecute?.Invoke(parameter) ?? true;
-        public void Execute(object? parameter) => _execute(parameter);
-        public event EventHandler? CanExecuteChanged { add => CommandManager.RequerySuggested += value; remove => CommandManager.RequerySuggested -= value; }
     }
 }
