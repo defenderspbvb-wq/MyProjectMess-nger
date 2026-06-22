@@ -25,7 +25,11 @@ namespace TcpChat.Client
         private bool _isConnected;
 
         // --- КРИПТОГРАФИЯ (E2EE ТОЛЬКО ДЛЯ ПРИВАТНЫХ ЧАТОВ) ---
-        private ECDiffieHellman _ecdh;// Криптографический «движок». Работает на основе математики эллиптических кривых (алгоритм Диффи-Хеллмана).
+
+        /// <summary>
+        /// Криптографический «движок». Работает на основе математики эллиптических кривых (алгоритм Диффи-Хеллмана).
+        /// </summary>
+        private ECDiffieHellman _ecdh;
         private byte[] _myPublicKeyBytes = null!;// Публичный ключ в виде массива байт
         private readonly Dictionary<int, byte[]> _sessionKeys = new();// Хранилище общих AES-ключей: Key = ID собеседника, Value = Секретный ключ (32 байта)
         private List<User> _cachedUsers = new();// Локальный кэш пользователей для поиска их публичных ключей при получении сообщений
@@ -35,7 +39,7 @@ namespace TcpChat.Client
             _host = host;
             _port = port;
             _userName = userName ?? "Аноним";
-            _ecdh = ECDiffieHellman.Create(ECCurve.NamedCurves.nistP256);// Инициализация криптографию на эллиптических кривых(NIST P-256)
+            _ecdh = ECDiffieHellman.Create(ECCurve.NamedCurves.nistP256);// Инициализация криптографии на эллиптических кривых(NIST P-256)
         }
 
         // СОБЫТИЯ ДЛЯ WPF
@@ -57,13 +61,13 @@ namespace TcpChat.Client
                 _reader = new StreamReader(_stream, Encoding.UTF8);
                 _writer = new StreamWriter(_stream, Encoding.UTF8) { AutoFlush = true };
 
-                _myPublicKeyBytes = _ecdh.ExportSubjectPublicKeyInfo();// Конвертация открытый ключ в массив байт
+                _myPublicKeyBytes = _ecdh.ExportSubjectPublicKeyInfo();// Экспорт открытого ключа в массив байт
 
                 NetworkPacket networkPacket = new NetworkPacket
                 {
                     Command = "CONNECT",
                     SenderName = _userName,
-                    MessageText = Convert.ToBase64String(_myPublicKeyBytes)// Экспорт публичного ключа в формате Base64, чтобы сервер сохранил его в User.PublicKeyBase64
+                    MessageText = Convert.ToBase64String(_myPublicKeyBytes)// Конвертация публичного ключа в формат Base64, чтобы сервер сохранил его в User.PublicKeyBase64
                 };
 
                 await _writer.WriteLineAsync(JsonSerializer.Serialize(networkPacket));

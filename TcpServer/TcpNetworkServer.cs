@@ -22,7 +22,8 @@ public class TcpNetworkServer
     public async Task StartListenAsync()
     {
         if (!IPAddress.TryParse(_ip, out var ipAddress)) throw new ArgumentException("Некорректный IP-адрес");
-        // Добавить проверку порта
+        if (_port is < 1 or > 65535) throw new ArgumentOutOfRangeException(nameof(_port), "Порт должен быть в диапазоне от 1 до 65535");
+
         try
         {
             _listener = new TcpListener(ipAddress, _port);
